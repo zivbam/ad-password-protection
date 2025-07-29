@@ -19,37 +19,97 @@ BOOLEAN IsUserInScope(const std::wstring& accountName)
 		return FALSE;
 	}
 
-	registry reg;
+       registry reg;
 
-	for (const auto& excludedAccount : reg.GetRegValue(REG_VALUE_EXCLUDEDACCOUNTS, REG_DEFAULT_MAX_ITEMS, std::vector<std::wstring>()))
-	{
-		if (_wcsicmp(accountName.c_str(), excludedAccount.c_str()) == 0)
-		{
-			eventlog::getInstance().logw(EVENTLOG_INFORMATION_TYPE, MSG_USEREXCLUDED, 1, accountName.c_str());
-			return FALSE;
-		}
-	}
+        for (const auto& excludedAccount : reg.GetRegValue(REG_VALUE_EXCLUDEDACCOUNTS, REG_DEFAULT_MAX_ITEMS, std::vector<std::wstring>()))
+        {
+                if (_wcsicmp(accountName.c_str(), excludedAccount.c_str()) == 0)
+                {
+                        eventlog::getInstance().logw(EVENTLOG_INFORMATION_TYPE, MSG_USEREXCLUDED, 1, accountName.c_str());
+                        return FALSE;
+                }
+        }
 
-	// See if we have an INCLUDEDACCOUNTS value. If it is present, then only allow those accounts to be processed. If it is blank, allow all accounts.
+       std::wstring userDn = GetUserDistinguishedName(accountName);
+       if (!userDn.empty())
+       {
+               for (const auto& excludedOu : reg.GetRegValue(REG_VALUE_EXCLUDEDOUS, REG_DEFAULT_MAX_ITEMS, std::vector<std::wstring>()))
+               {
+                       if (IsDnUnderOu(userDn, excludedOu))
+                       {
+                               eventlog::getInstance().logw(EVENTLOG_INFORMATION_TYPE, MSG_USEREXCLUDED, 1, accountName.c_str());
+                               return FALSE;
+                       }
+               }
+       }
 
-	std::vector<std::wstring> includedAccounts = reg.GetRegValue(REG_VALUE_INCLUDEDACCOUNTS, REG_DEFAULT_MAX_ITEMS, std::vector<std::wstring>());
+       for (const auto& excludedGroup : reg.GetRegValue(REG_VALUE_EXCLUDEDGROUPS, REG_DEFAULT_MAX_ITEMS, std::vector<std::wstring>()))
+       {
+               if (IsUserMemberOfGroup(accountName, excludedGroup))
+               {
+                       eventlog::getInstance().logw(EVENTLOG_INFORMATION_TYPE, MSG_USEREXCLUDED, 1, accountName.c_str());
+                       return FALSE;
+               }
+       }
 
-	if (!includedAccounts.empty())
-	{
-		for (const auto& includedAccount : includedAccounts)
-		{
-			if (_wcsicmp(accountName.c_str(), includedAccount.c_str()) == 0)
-			{
-				return TRUE;
-			}
-		}
+       bool includePresent = false;
+       bool included = false;
 
-		eventlog::getInstance().logw(EVENTLOG_INFORMATION_TYPE, MSG_USERNOTINCLUDED, 1, accountName.c_str());
+       // Included accounts
+       std::vector<std::wstring> includedAccounts = reg.GetRegValue(REG_VALUE_INCLUDEDACCOUNTS, REG_DEFAULT_MAX_ITEMS, std::vector<std::wstring>());
+       if (!includedAccounts.empty())
+       {
+               includePresent = true;
+               for (const auto& includedAccount : includedAccounts)
+               {
+                       if (_wcsicmp(accountName.c_str(), includedAccount.c_str()) == 0)
+                       {
+                               included = true;
+                               break;
+                       }
+               }
+       }
 
-		return FALSE;
-	}
+       // Included OUs
+       if (!userDn.empty())
+       {
+               std::vector<std::wstring> includedOus = reg.GetRegValue(REG_VALUE_INCLUDEDOUS, REG_DEFAULT_MAX_ITEMS, std::vector<std::wstring>());
+               if (!includedOus.empty())
+               {
+                       includePresent = true;
+                       for (const auto& includedOu : includedOus)
+                       {
+                               if (IsDnUnderOu(userDn, includedOu))
+                               {
+                                       included = true;
+                                       break;
+                               }
+                       }
+               }
+       }
 
-	return TRUE;
+       // Included groups
+       std::vector<std::wstring> includedGroups = reg.GetRegValue(REG_VALUE_INCLUDEDGROUPS, REG_DEFAULT_MAX_ITEMS, std::vector<std::wstring>());
+       if (!includedGroups.empty())
+       {
+               includePresent = true;
+               for (const auto& group : includedGroups)
+               {
+                       if (IsUserMemberOfGroup(accountName, group))
+                       {
+                               included = true;
+                               break;
+                       }
+               }
+       }
+
+       if (includePresent && !included)
+       {
+               eventlog::getInstance().logw(EVENTLOG_INFORMATION_TYPE, MSG_USERNOTINCLUDED, 1, accountName.c_str());
+               return FALSE;
+       }
+
+       return TRUE;
 }
 
 int ProcessPassword(const SecureArrayT<WCHAR>& password, const std::wstring& accountName, const std::wstring& fullName, const BOOLEAN& setOperation)
