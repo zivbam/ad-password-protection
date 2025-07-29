@@ -16,6 +16,12 @@ SecureArrayT<WCHAR> StringToWcharArray(const LPCWSTR str);
 
 bool DirectoryExists(const std::wstring& dirName);
 
+std::wstring GetUserDistinguishedName(const std::wstring& accountName);
+
+bool IsDnUnderOu(const std::wstring& dn, const std::wstring& ouDn);
+
+bool IsUserMemberOfGroup(const std::wstring& accountName, const std::wstring& groupName);
+
 template<typename T>
 std::wstring ToHexString(T first, T last, bool use_uppercase = true, bool insert_spaces = false)
 {
